@@ -1,15 +1,21 @@
 import telebot
 import requests
+import os
 from sympy import symbols, solve, sympify, simplify, Eq, integrate, diff, limit
 
-# ТВОЙ ТОКЕН
-TOKEN = '9066567820:AAFQ9i7PljI4RAMiWOZ77SnoHTiWsjLRE9s'
-HF_API_KEY = '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'
-OCR_API_KEY = 'K8180298881425088957'
+# Токены будут браться из настроек Railway (Variables)
+TOKEN = os.getenv('TOKEN')
+HF_API_KEY = os.getenv('HF_API_KEY')
+OCR_API_KEY = os.getenv('OCR_API_KEY')
+
+# Если вдруг забыл указать, бот выдаст ошибку
+if not TOKEN or not HF_API_KEY:
+    print("ОШИБКА: Не заданы переменные окружения TOKEN или HF_API_KEY!")
+    exit()
 
 bot = telebot.TeleBot(TOKEN)
 
-# Сменили модель на более быструю Zephyr
+# Модель Zephyr (быстрая и стабильная)
 API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 headers = {"Authorization": f"Bearer {HF_API_KEY}"}
 
@@ -22,7 +28,6 @@ def solve_math(text):
         text = text.replace('÷', '/').replace(',', '.')
         x, y = symbols('x y')
         
-        # 1. Пределы
         if text.lower().startswith('limit'):
             expr_text = text[5:].strip('()')
             parts = expr_text.split(',')
@@ -33,19 +38,16 @@ def solve_math(text):
                 result = limit(expression, var, point)
                 return f"✅ **Предел:** {result}\n📝 **Правило:** Использован предел функции."
         
-        # 2. Интегралы
         elif text.lower().startswith('int'):
             expr = sympify(text[3:])
             result = integrate(expr, x)
             return f"✅ **Интеграл:** {result} + C\n📝 **Формула:** ∫ x^n dx = x^(n+1) / (n+1)."
             
-        # 3. Производные
         elif text.lower().startswith('diff'):
             expr = sympify(text[4:])
             result = diff(expr, x)
             return f"✅ **Производная:** {result}\n📝 **Формула:** (x^n)' = n * x^(n-1)."
             
-        # 4. Системы уравнений
         elif ';' in text:
             equations = text.split(';')
             eqs = []
@@ -59,13 +61,11 @@ def solve_math(text):
                     return "🤔 Система не имеет решений."
                 return f"✅ **Решение системы:**\n{solutions}"
                 
-        # 5. Уравнения
         elif '=' in text:
             left, right = text.split('=')
             eq = Eq(sympify(left), sympify(right))
             expanded = simplify(left - right)
             
-            # Если это квадратное уравнение
             if 'x**2' in text and 'x**3' not in text:
                 solutions = solve(eq, x)
                 if not solutions:
@@ -85,8 +85,6 @@ def solve_math(text):
                     answer += f"\nДискриминант D = b² - 4ac = {D}"
                     answer += f"\nx = (-b ± √D) / 2a"
                 return answer
-            
-            # Обычное уравнение
             else:
                 solutions = solve(eq, x)
                 if not solutions:
@@ -96,19 +94,17 @@ def solve_math(text):
                     answer += f"x{i} = {sol}\n"
                 return answer
 
-        # 6. Обычные примеры
         else:
             result = sympify(text)
-            # Если это просто число (2+2), не пишем про скобки
             if text.isdigit() or ('+' in text and text.replace('+', '').isdigit()):
                  return f"✅ **Ответ:** {simplify(result)}"
             else:
-                 return f"✅ **Ответ:** {simplify(result)}\n📝 **Правило:** Порядок действий (умножение/деление, сложение/вычитание)."
+                 return f"✅ **Ответ:** {simplify(result)}\n📝 **Правило:** Порядок действий."
             
     except Exception:
         return "❌ Ошибка в примере. Проверь синтаксис. Пиши деление через /"
 
-# --- ФУНКЦИЯ ИИ (ZEPHYR) ---
+# --- ФУНКЦИЯ ИИ ---
 def ask_ai(user_id, user_text):
     if user_id not in user_histories:
         user_histories[user_id] = []
@@ -117,7 +113,6 @@ def ask_ai(user_id, user_text):
     if len(user_histories[user_id]) > 6:
         user_histories[user_id] = user_histories[user_id][-6:]
     
-    # Промпт для Zephyr
     prompt = "<|system|>\nТы умный и полезный ассистент. Отвечай на русском языке. Подстраивайся под манеру общения пользователя.</s>\n"
     
     for msg in user_histories[user_id]:
