@@ -1,6 +1,6 @@
 import telebot
 import requests
-from sympy import symbols, solve, sympify, simplify, Eq, integrate, diff, limit, log, sin, cos, tan, pi, E, sqrt
+from sympy import symbols, solve, sympify, simplify, Eq, integrate, diff, limit
 
 # ТВОЙ ТОКЕН
 TOKEN = '9066567820:AAFQ9i7PljI4RAMiWOZ77SnoHTiWsjLRE9s'
@@ -9,8 +9,8 @@ OCR_API_KEY = 'K8180298881425088957'
 
 bot = telebot.TeleBot(TOKEN)
 
-# Заменили Mistral на более стабильную Qwen
-API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct"
+# Сменили модель на более быструю Zephyr
+API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 headers = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 user_histories = {}
@@ -31,13 +31,13 @@ def solve_math(text):
                 var = sympify(parts[1])
                 point = sympify(parts[2])
                 result = limit(expression, var, point)
-                return f"✅ **Предел:** {result}\n📝 **Правило:** Использован предел функции (возможно, правило Лопиталя)."
+                return f"✅ **Предел:** {result}\n📝 **Правило:** Использован предел функции."
         
         # 2. Интегралы
         elif text.lower().startswith('int'):
             expr = sympify(text[3:])
             result = integrate(expr, x)
-            return f"✅ **Интеграл:** {result} + C\n📝 **Формула:** ∫ x^n dx = x^(n+1) / (n+1) (для степенных функций)."
+            return f"✅ **Интеграл:** {result} + C\n📝 **Формула:** ∫ x^n dx = x^(n+1) / (n+1)."
             
         # 3. Производные
         elif text.lower().startswith('diff'):
@@ -57,7 +57,7 @@ def solve_math(text):
                 solutions = solve(eqs, (x, y), dict=True)
                 if not solutions:
                     return "🤔 Система не имеет решений."
-                return f"✅ **Решение системы:**\n{solutions}\n📝 **Метод:** Подстановка или алгебраическое сложение."
+                return f"✅ **Решение системы:**\n{solutions}"
                 
         # 5. Уравнения
         elif '=' in text:
@@ -79,17 +79,12 @@ def solve_math(text):
                 for i, sol in enumerate(solutions, 1):
                     answer += f"x{i} = {sol}\n"
                 
-                answer += f"\n📝 **Формула:** ax² + bx + c = 0"
                 if a != 0:
                     D = b**2 - 4*a*c
-                    answer += f"\nДискриминант D = b² - 4ac = {b}² - 4*{a}*{c} = {D}"
+                    answer += f"\n📝 **Формула:** ax² + bx + c = 0"
+                    answer += f"\nДискриминант D = b² - 4ac = {D}"
                     answer += f"\nx = (-b ± √D) / 2a"
                 return answer
-            
-            # Логарифмы
-            elif 'log' in text:
-                solutions = solve(eq, x)
-                return f"✅ **Решение:** x = {solutions}\n📝 **Формула:** log_a(b) = c ⇔ a^c = b."
             
             # Обычное уравнение
             else:
@@ -104,12 +99,16 @@ def solve_math(text):
         # 6. Обычные примеры
         else:
             result = sympify(text)
-            return f"✅ **Ответ:** {simplify(result)}\n📝 **Правило:** Порядок действий (скобки, умножение/деление, сложение/вычитание)."
+            # Если это просто число (2+2), не пишем про скобки
+            if text.isdigit() or ('+' in text and text.replace('+', '').isdigit()):
+                 return f"✅ **Ответ:** {simplify(result)}"
+            else:
+                 return f"✅ **Ответ:** {simplify(result)}\n📝 **Правило:** Порядок действий (умножение/деление, сложение/вычитание)."
             
     except Exception:
         return "❌ Ошибка в примере. Проверь синтаксис. Пиши деление через /"
 
-# --- ФУНКЦИЯ ИИ (QWEN) ---
+# --- ФУНКЦИЯ ИИ (ZEPHYR) ---
 def ask_ai(user_id, user_text):
     if user_id not in user_histories:
         user_histories[user_id] = []
@@ -118,13 +117,15 @@ def ask_ai(user_id, user_text):
     if len(user_histories[user_id]) > 6:
         user_histories[user_id] = user_histories[user_id][-6:]
     
-    prompt = "<s>[INST] Ты умный и полезный ассистент. Отвечай на русском языке. Подстраивайся под манеру общения пользователя. [/INST]\n"
+    # Промпт для Zephyr
+    prompt = "<|system|>\nТы умный и полезный ассистент. Отвечай на русском языке. Подстраивайся под манеру общения пользователя.</s>\n"
     
     for msg in user_histories[user_id]:
         if msg["role"] == "user":
-            prompt += f"<s>[INST] {msg['content']} [/INST] "
+            prompt += f"<|user|>\n{msg['content']}</s>\n"
         else:
-            prompt += f"{msg['content']} </s> "
+            prompt += f"<|assistant|>\n{msg['content']}</s>\n"
+    prompt += "<|assistant|>\n"
             
     payload = {
         "inputs": prompt,
@@ -132,7 +133,7 @@ def ask_ai(user_id, user_text):
     }
     
     try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=40)
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
         result = response.json()
         
         if isinstance(result, list) and len(result) > 0:
@@ -157,8 +158,7 @@ def start(message):
         "• `2+2` \n"
         "• `x**2 - 4 = 0`\n"
         "• `diff x**3`\n"
-        "• `int x**2`\n"
-        "• `log(x, 2) = 3`\n\n"
+        "• `int x**2`\n\n"
         "📸 Можешь отправить фото с примером, или просто пиши мне!"
     )
 
